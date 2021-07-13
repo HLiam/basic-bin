@@ -10,12 +10,12 @@ fn touch_file(path: &str) -> io::Result<fs::File> {
 fn main() {
     match env::args().nth(1).as_deref() {
         None | Some("-h" | "--help") => {
-            println!("Usage: touch [file]");
+            println!("Usage: touch <file>");
         }
         Some(path) => {
             touch_file(path).unwrap_or_else(|err| match err.kind() {
                 io::ErrorKind::NotFound => {
-                    println!("Error: path contains invalid characters");
+                    println!("Error: directory doesn't exist or path contains invalid characters");
                     exit(2);
                 }
                 io::ErrorKind::InvalidInput => {
