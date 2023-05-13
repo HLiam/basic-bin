@@ -3,6 +3,7 @@
 //  - flag to create parents for destination
 
 use std::borrow::Cow;
+use std::fs;
 use std::io::{self, Read, Seek, Write};
 use std::path::{Path, PathBuf};
 use std::process::Command;
@@ -25,6 +26,9 @@ struct Args {
     /// Replace the destination file if it already exists.
     #[arg(short = 'd', long)]
     destructive: bool,
+    /// Create ancestor directories of destination if they don't already exist.
+    #[arg(short = 'a', long)]
+    create_ancestors: bool,
 }
 
 fn get_dst_in_editor(src: &Path, use_canonical: bool) -> Result<PathBuf> {
@@ -49,7 +53,9 @@ fn get_dst_in_editor(src: &Path, use_canonical: bool) -> Result<PathBuf> {
     Command::new(EDITOR)
         .arg(tmp_file.path())
         .status()
-        .context("Failed to launch editor (is it in your $PATH?)")?;
+        .with_context(|| {
+            format!("Failed to launch editor (it's set to '{EDITOR}'; is it in your $PATH?)")
+        })?;
 
     tmp_file.seek(io::SeekFrom::Start(0))?;
     let mut buf = String::new();
@@ -76,9 +82,12 @@ fn run(args: Args) -> Result<()> {
             dst.display()
         );
     }
+    if args.create_ancestors {
+        fs::create_dir_all(&dst).context("Failed to create ancestors")?;
+    }
 
     if args.src != dst {
-        Ok(std::fs::rename(args.src, dst).context("Failed to rename")?)
+        Ok(std::fs::rename(args.src, dst).context("Failed to rename.")?)
     } else {
         Ok(())
     }
