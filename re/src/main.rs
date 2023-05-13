@@ -1,6 +1,5 @@
 // TODO:
 //  - improve errors
-//  - flag to create parents for destination
 
 use std::borrow::Cow;
 use std::fs;
@@ -76,9 +75,12 @@ fn run(args: Args) -> Result<()> {
         None => get_dst_in_editor(&args.src, args.canonical)?,
     };
 
+    if dst.as_os_str().is_empty() {
+        bail!("Destination can't be an empty string");
+    }
     if !args.destructive && dst.exists() {
         bail!(
-            "\"{}\" already exists. Use the '-d' flag to replace anyway.",
+            "\"{}\" already exists. Use the '-d' flag to replace anyway",
             dst.display()
         );
     }
@@ -87,7 +89,7 @@ fn run(args: Args) -> Result<()> {
     }
 
     if args.src != dst {
-        Ok(std::fs::rename(args.src, dst).context("Failed to rename.")?)
+        Ok(std::fs::rename(args.src, dst).context("Failed to rename")?)
     } else {
         Ok(())
     }
