@@ -1,0 +1,15 @@
+[package]
+name = "re"
+version = "0.1.0"
+edition = "2021"
+
+[profile.release]
+lto = "fat"
+codegen-units = 1
+opt-level = "z"
+
+[dependencies]
+anyhow = "1"
+clap = { version = "4.2", features = ["derive"] }
+path-clean = "1.0"
+tempfile = "3.5"
