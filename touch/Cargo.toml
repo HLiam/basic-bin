@@ -2,11 +2,6 @@
 name = "touch"
 version = "0.1.0"
 authors = ["Liam Henrickson <liam.henrickson@gmail.com>"]
-edition = "2018"
-
-[profile.release]
-lto = "fat"
-codegen-units = 1
-opt-level = "z"
+edition = "2021"
 
 [dependencies]
