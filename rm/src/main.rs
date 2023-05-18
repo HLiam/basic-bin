@@ -1,153 +1,99 @@
+// TODO:
+//   - improve errors
+
 use std::fs;
 use std::io;
-use std::path::{Path, PathBuf};
-use std::process::exit;
 
-use clap::{App, Arg, ArgMatches};
+use anyhow::{bail, Context, Result};
+use clap::Parser;
 use glob::glob;
 
-mod util;
+use common::ExpandUser;
 
-use util::UnwrapOrExitWith;
-
-struct RmBuilder {
+// TODO: add '--dry-run' flag
+/// Removes file system objects
+#[derive(Parser)]
+struct Args {
+    // TODO
+    /// Disables all prompting before removal
+    #[arg(short = 'f', long)]
     force: bool,
+    /// Prompts before every removal
+    #[arg(short = 'p', long)]
     prompt: bool,
+    // TODO
+    /// Allows for deleting of '/' and '/*'
+    #[arg(long)]
+    no_preserve_root: bool,
+    /// Removes directories and their contents recursively
+    #[arg(short = 'r', long)]
     recursive: bool,
+    /// Disables reporting errors
+    #[arg(short = 'q', long)]
     quiet: bool,
+    /// Verbose mode; reports each file as it's being deleted
+    #[arg(short = 'v', long)]
     verbose: bool,
+    pattern: String,
 }
 
-impl RmBuilder {
-    fn rm(&self, path_iter: impl IntoIterator<Item = PathBuf>) -> io::Result<()> {
-        let mut input_buf = String::new();
+fn ask_yn(question: impl AsRef<str>, mut buf: &mut String) -> io::Result<bool> {
+    println!("{} [y/N]?", question.as_ref());
 
-        for path in path_iter.into_iter() {
-            if self.prompt
-                && !ask_affirmation(
-                    format!("Delete file \"{}\"?", path.display()),
-                    &mut input_buf,
-                )?
-            {
-                continue;
-            }
+    loop {
+        io::stdin().read_line(&mut buf)?;
+        buf.make_ascii_lowercase();
 
-            match remove_fso(&path, self.force, self.recursive) {
-                Ok(_) if self.verbose => {
-                    println!("Removed fso \"{}\"", path.display());
-                }
-                Err(e) => {
-                    if !self.quiet {
-                        print_err!("failed to remove fso \"{}\". Reason: {}", path.display(), e);
-                    }
-                    continue;
-                }
-                _ => (),
-            }
-        }
-
-        Ok(())
-    }
-}
-
-impl From<&ArgMatches<'static>> for RmBuilder {
-    fn from(args: &ArgMatches) -> Self {
-        Self {
-            force: args.is_present("force"),
-            prompt: args.is_present("prompt"),
-            recursive: args.is_present("recursive"),
-            quiet: args.is_present("quiet"),
-            verbose: args.is_present("verbose"),
+        match buf as &str {
+            "y" | "yes" => return Ok(true),
+            "n" | "no" | "" => return Ok(false),
+            _ => println!("Invalid input [y/N]?"),
         }
     }
 }
 
-fn get_args() -> ArgMatches<'static> {
-    App::new("rm")
-        .version("1.0")
-        .author("Liam <liam.henrickson@gmail.com>")
-        .about("Removes filesystem objects")
-        .arg(
-            Arg::with_name("force")
-                .short("f")
-                .long("force")
-                .help("Disables all prompting before removal"),
-        )
-        .arg(
-            Arg::with_name("prompt")
-                .short("p")
-                .long("prompt")
-                .help("Prompts before every removal"),
-        )
-        .arg(
-            Arg::with_name("no-preserve-root")
-                .long("no-preserve-root")
-                .help("Allows for deleting of '/' and '/*'"),
-        )
-        .arg(
-            Arg::with_name("recursive")
-                .short("r")
-                .long("recursive")
-                .help("Removes directories and their contents recursively"),
-        )
-        .arg(
-            Arg::with_name("quiet")
-                .short("q")
-                .long("quiet")
-                .help("Disables reporting errors"),
-        )
-        .arg(
-            Arg::with_name("verbose")
-                .short("v")
-                .long("verbose")
-                .help("Verbose mode; reports each file as it's being deleted"),
-        )
-        // make this take multiple values
-        .arg(Arg::with_name("pattern").required(true))
-        .get_matches()
-}
+fn run(mut args: Args) -> Result<()> {
+    let mut input_buf = String::new();
 
-fn ask_affirmation(question: impl AsRef<str>, mut input_buf: &mut String) -> io::Result<bool> {
-    println!("{}", question.as_ref());
-
-    io::stdin().read_line(&mut input_buf)?;
-    input_buf.make_ascii_lowercase();
-
-    Ok(matches!(input_buf.as_str(), "y" | "yes"))
-}
-
-// dirs are always removed recursively
-fn remove_fso(path: &Path, force: bool, remove_if_dir: bool) -> io::Result<()> {
-    // TODO: implement `force` flag.
-    if remove_if_dir && path.is_dir() {
-        fs::remove_dir_all(path)
-    } else {
-        fs::remove_file(path)
-    }
-}
-
-fn main() -> io::Result<()> {
-    let args = get_args();
-    let pattern = args
-        .value_of("pattern")
-        .unwrap_or_exit_with("invalid characters in pattern");
-
-    if !args.is_present("no-preserve-root") && matches!(pattern, "/" | "/*") {
-        exit_with_err!(
-            "Can't delete root ('/') or it's members ('/*') without --no-preserve-root option."
-        );
+    // TODO: check for protected paths with each canonical path in the glob, too.
+    if !args.no_preserve_root && matches!(&args.pattern as &str, "/" | "/*") {
+        bail!("Can't delete root ('/') or it's members ('/*') without --no-preserve-root option.");
     }
 
-    let path_iter = glob(pattern)
-        .unwrap_or_exit_with("invalid pattern")
-        .into_iter()
-        .filter_map(|r| match r {
-            Ok(p) => Some(p),
-            Err(e) => {
-                print_err!(e);
-                None
-            }
-        });
+    // let pattern = if args.pattern.starts_with("~/") matches!(&args.pattern as &str, "~/" | "~\\") {
+    args.pattern = args.pattern.expand_user()?.to_owned();
+    // } else {
+    // args.pattern
+    // };
 
-    RmBuilder::from(&args).rm(path_iter)
+    for p in glob(&args.pattern).context("Invalid pattern")? {
+        let p = p.context("Failed to get glob matches")?;
+        // TODO: don't use canonicalize here--it follows symlinks.
+        let p = match p.canonicalize() {
+            Ok(p) => p,
+            e if !p.exists() => e?,
+            e => e.with_context(|| format!("Failed to canonicalize path \'{}\'", p.display()))?,
+        };
+
+        if args.prompt && !ask_yn(format!("Delete file \"{}\"?", p.display()), &mut input_buf)? {
+            continue;
+        }
+
+        if p.is_file() {
+            fs::remove_file(p)
+        } else if args.recursive {
+            fs::remove_dir_all(p)
+        } else {
+            fs::remove_dir(p)
+        }
+        .context("Failed to remove file or dir")?;
+    }
+
+    Ok(())
+}
+
+fn main() {
+    if let Err(e) = run(Args::parse()) {
+        eprintln!("Error: {e}")
+    }
 }
