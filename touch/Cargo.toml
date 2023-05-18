@@ -5,3 +5,6 @@ authors = ["Liam Henrickson <liam.henrickson@gmail.com>"]
 edition = "2021"
 
 [dependencies]
+common = { path = "../common" }
+anyhow = "1"
+clap = { version = "4", features = ["derive"] }

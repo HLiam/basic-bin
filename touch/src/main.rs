@@ -1,31 +1,55 @@
-use std::env;
 use std::fs;
 use std::io;
-use std::process::exit;
+use std::path::PathBuf;
 
-fn touch_file(path: &str) -> io::Result<fs::File> {
-    fs::OpenOptions::new().append(true).create(true).open(path)
+use anyhow::{anyhow, Result};
+use clap::{arg, Parser};
+
+use common::ExpandUser;
+
+trait PathExt {
+    fn touch(self) -> io::Result<()>;
+}
+impl PathExt for PathBuf {
+    fn touch(self) -> io::Result<()> {
+        fs::OpenOptions::new()
+            .append(true)
+            .create(true)
+            .open(self)
+            .map(|_| ())
+    }
+}
+
+#[derive(Parser, Debug)]
+struct Args {
+    /// Create ancestor directories of destination if they don't already exist
+    #[arg(short = 'a', long)]
+    create_ancestors: bool,
+    path: PathBuf,
+}
+
+fn run(mut args: Args) -> Result<()> {
+    use io::ErrorKind::*;
+
+    args.path = args.path.expand_user()?;
+
+    if args.create_ancestors {
+        args.path.parent().map(fs::create_dir_all).transpose()?;
+    }
+
+    args.path.touch().map_err(|e| {
+        anyhow!(match e.kind() {
+            NotFound =>
+                "Path is invalid. If the ancestor directories don't exist, automatically create \
+                them with the '-a' flag",
+            InvalidInput => "File name is forbidden",
+            _ => return anyhow!(e),
+        })
+    })
 }
 
 fn main() {
-    match env::args().nth(1).as_deref() {
-        None | Some("-h" | "--help") => {
-            println!("Usage: touch <file>");
-        }
-        Some(path) => {
-            touch_file(path).unwrap_or_else(|err| match err.kind() {
-                io::ErrorKind::NotFound => {
-                    println!("Error: directory doesn't exist or path contains invalid characters");
-                    exit(2);
-                }
-                io::ErrorKind::InvalidInput => {
-                    println!("Error: file name is forbidden");
-                    exit(2);
-                }
-                _ => {
-                    panic!("{}", err);
-                }
-            });
-        }
+    if let Err(e) = run(Args::parse()) {
+        eprintln!("Error: {e}");
     }
 }

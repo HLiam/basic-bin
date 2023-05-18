@@ -541,6 +541,7 @@ dependencies = [
 name = "touch"
 version = "0.1.0"
 dependencies = [
+ "anyhow",
  "clap 4.2.7",
  "common",
 ]
